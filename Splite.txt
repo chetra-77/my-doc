@@ -1,0 +1,15 @@
+```UpdateContext({Existing_Lesson:LookUp(Lesson_History,User_Email=User().Email&&Title=Text(Main_Lesso_Info.IDs)&&Year_Info=Year(Now()))});
+
+Set(Main_Lesso_Info,LookUp(Main_Lesson,ID=Value(Selected_Lesson.Value)););
+Clear(col_Lesson_Trial);
+Collect(col_Lesson_Trial,Filter(Lesson_Trial,Title=Text(Selected_Lesson.Value)));
+
+Refresh(Quiz_List);
+UpdateContext({Lesson_Quiz_Info:LookUp(Quiz_List,Lesson_ID=Main_Lesso_Info.IDs)});
+If(Lesson_Quiz_Info.Quiz_Qty>0,
+Collect(Col_Question_Info,AddColumns(Sequence(Lesson_Quiz_Info.Quiz_Qty),No,Value(IfError(Index(Split(Lesson_Quiz_Info.Question_No,"|||"),Value).Value,0)),Item,IfError(Index(Split(Lesson_Quiz_Info.Question,"|||"),Value).Value,""),Quiz_IDs,Value(Index(Split(Lesson_Quiz_Info.Quiz_ID,"|||"),Value).Value),Answer_List,Index(Split(Lesson_Quiz_Info.Answer,"|||"),Value).Value,Question_Qty,Value(IfError(Index(Split(Lesson_Quiz_Info.Question_Qty,"|||"),Value).Value,0)),Answer_Result,Index(Split(Lesson_Quiz_Info.Result,"|||"),Value).Value,Score,Value(Index(Split(Lesson_Quiz_Info.Score,"|||"),Value).Value),Reason_C,Index(Split(Lesson_Quiz_Info.Reason_C,"|||"),Value).Value)));
+
+UpdateContext({Show_Content_Step:If(IsBlank(Show_Content_Step),true,Show_Content_Step)});
+Select(Button3_6);UpdateContext({Edit_Match_:"New",Sel_Match_:Blank()});
+
+If(IsBlank(Start_ID),UpdateContext({Blank_Duration:10,Lesson_Start:true}))```
