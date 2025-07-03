@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import cv2
 from PIL import Image, ImageTk
+import face_recognition
 import os
 import csv
 from datetime import datetime
@@ -12,6 +13,7 @@ import threading
 from urllib.parse import urlencode
 import pyautogui
 import time
+import tkinter.filedialog 
 
 class FaceRecognitionApp:
     def __init__(self, root):
@@ -22,7 +24,7 @@ class FaceRecognitionApp:
         self.is_camera_running = False
         self.known_encodings = []
         self.known_names = []
-        self.last_logged = {}
+        self.last_logged = {}  
         
         # Performance optimization variables
         self.process_this_frame = True 
@@ -43,44 +45,64 @@ class FaceRecognitionApp:
             'add_enter': True,
             'add_tab': False,
             'delay_seconds': 3,
-            'format_template': '{name}',
-            'target_window': ''
+            'format_template': '{name}', 
+            'target_window': ''  
         }
         
-        # SharePoint configuration
-        self.sharepoint_config = {
-            'site_url': '',
-            'list_name': '',
-            'client_id': '',
-            'client_secret': '',
-            'tenant_id': '',
-            'enabled': False
-        }
         
-        # Load YuNet face detector
-        self.face_detector = cv2.FaceDetectorYN_create(
-            "face_detection_yunet_2023mar.onnx",
-            "",
-            (320, 320),
-            score_threshold=0.9,
-            backend_id=cv2.dnn.DNN_BACKEND_OPENCV,
-            target_id=cv2.dnn.DNN_TARGET_CPU
-        )
-        
-        # Load SFace model for face recognition
-        self.face_recognizer = cv2.FaceRecognizerSF_create(
-            "face_recognition_sface_2021dec.onnx",
-            ""
-        )
-        
-        # Create GUI elements
+        # Create GUI elements first
         self.create_gui()
         self.load_configs()
         self.load_known_faces()
         self.start_camera()
+
+    def upload_image(self):
+        """Allow user to upload an image and recognize faces in it."""
+        file_path = tkinter.filedialog.askopenfilename(
+            title="Select Image",
+            filetypes=[("Image Files", "*.jpg *.jpeg *.png")]
+        )
+        if not file_path:
+            return
+
+        try:
+            image = face_recognition.load_image_file(file_path)
+            face_locations = face_recognition.face_locations(image)
+            face_encodings = face_recognition.face_encodings(image, face_locations)
+
+            if not face_encodings:
+                messagebox.showinfo("Result", "No faces detected in the selected image.")
+                return
+
+            # Draw rectangles and names on the image
+            image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+                matches = face_recognition.compare_faces(self.known_encodings, face_encoding, tolerance=0.5)
+                name = "Unknown"
+                if True in matches:
+                    face_distances = face_recognition.face_distance(self.known_encodings, face_encoding)
+                    best_match_index = np.argmin(face_distances)
+                    if matches[best_match_index] and face_distances[best_match_index] < 0.6:
+                        name = self.known_names[best_match_index]
+                cv2.rectangle(image_bgr, (left, top), (right, bottom), (0, 255, 0), 2)
+                cv2.putText(image_bgr, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            # Show the result in a new window
+            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(image_rgb)
+            img.thumbnail((600, 600))
+            photo = ImageTk.PhotoImage(img)
+
+            top_window = tk.Toplevel(self.root)
+            top_window.title("Recognition Result")
+            label = tk.Label(top_window, image=photo)
+            label.image = photo
+            label.pack()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to process image: {e}")
     
     def load_known_faces(self):
-        """Load known faces from the known_people folder"""
+        """Load known faces from the known_people folder including subfolders"""
         known_people_folder = "./known_people"
         if not os.path.exists(known_people_folder):
             os.makedirs(known_people_folder)
@@ -90,33 +112,29 @@ class FaceRecognitionApp:
         self.known_encodings = []
         self.known_names = []
         
-        for filename in os.listdir(known_people_folder):
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                image_path = os.path.join(known_people_folder, filename)
-                try:
-                    image = cv2.imread(image_path)
-                    if image is None:
-                        print(f"Error: Could not load image {filename}")
-                        continue
-                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    height, width = image.shape[:2]
-                    self.face_detector.setInputSize((width, height))
-                    _, faces = self.face_detector.detect(image)
-                    if faces is not None and len(faces) > 0:
-                        for i, face in enumerate(faces):
-                            x, y, w, h = map(int, face[:4])
-                            face_img = image[y:y+h, x:x+w]
-                            face_encoding = self.face_recognizer.feature(face_img)
-                            name = os.path.splitext(filename)[0]
-                            if len(faces) > 1:
-                                name = f"{name}_{i+1}"
-                            self.known_encodings.append(face_encoding)
-                            self.known_names.append(name)
-                            print(f"Loaded face: {name}")
-                    else:
-                        print(f"Warning: No face detected in {filename}")
-                except Exception as e:
-                    print(f"Error loading {filename}: {e}")
+        for root_dir, dirs, files in os.walk(known_people_folder):
+            for filename in files:
+                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    image_path = os.path.join(root_dir, filename)
+                    try:
+                        image = face_recognition.load_image_file(image_path)
+                        encodings = face_recognition.face_encodings(image)
+                        if encodings:
+                            for i, encoding in enumerate(encodings):
+                                self.known_encodings.append(encoding)
+                                # Extract name from folder structure or filename
+                                relative_path = os.path.relpath(root_dir, known_people_folder)
+                                name = os.path.splitext(filename)[0]
+                                if relative_path != ".":
+                                    name = f"{relative_path}"
+                                if len(encodings) > 1:
+                                    name = f"{name}_{i+1}"
+                                self.known_names.append(name)
+                                print(f"Loaded face: {name}")
+                        else:
+                            print(f"Warning: No face detected in {filename}")
+                    except Exception as e:
+                        print(f"Error loading {filename}: {e}")
         
         print(f"Loaded {len(self.known_encodings)} known faces")
         if len(self.known_encodings) == 0:
@@ -131,12 +149,14 @@ class FaceRecognitionApp:
                               font=("Arial", 18, "bold"))
         title_label.pack(pady=10)
         
+        # Video display label
         self.video_label = tk.Label(self.root, bg="black")
         self.video_label.pack(pady=10)
 
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=10)
         
+        # Start/Stop camera button
         self.camera_button = tk.Button(button_frame, text="Stop Camera", 
                                       command=self.toggle_camera,
                                       bg="red", fg="white", font=("Arial", 12))
@@ -147,16 +167,13 @@ class FaceRecognitionApp:
                                  bg="blue", fg="white", font=("Arial", 12))
         reload_button.pack(side=tk.LEFT, padx=5)
         
+        # Keyboard settings button
         keyboard_button = tk.Button(button_frame, text="Keyboard Settings", 
                                    command=self.open_keyboard_config,
                                    bg="orange", fg="white", font=("Arial", 12))
         keyboard_button.pack(side=tk.LEFT, padx=5)
-        
-        sharepoint_button = tk.Button(button_frame, text="SharePoint Config", 
-                                     command=self.open_sharepoint_config,
-                                     bg="purple", fg="white", font=("Arial", 12))
-        sharepoint_button.pack(side=tk.LEFT, padx=5)
 
+        # Status information frame
         status_frame = tk.Frame(self.root)
         status_frame.pack(pady=5)
         
@@ -175,30 +192,26 @@ class FaceRecognitionApp:
         self.keyboard_status_label = tk.Label(status_frame, text="Keyboard Auto-Input: Disabled", 
                                             font=("Arial", 10), fg="gray")
         self.keyboard_status_label.pack()
-        
-        self.sharepoint_status_label = tk.Label(status_frame, text="SharePoint: Not configured", 
-                                              font=("Arial", 10), fg="gray")
-        self.sharepoint_status_label.pack()
 
         instructions = tk.Label(self.root, 
-                               text="✓ Place known face images in the 'known_people' folder\n✓ Configure keyboard auto-input to automatically type data when face is recognized\n✓ Multiple faces will be detected simultaneously\n✓ Configure SharePoint to automatically sync attendance data\n✓ Use clear, front-facing photos with good lighting for best results",
+                               text="✓ Place known face images in the 'known_people' folder or subfolders\n✓ Configure keyboard auto-input to automatically type data when face is recognized\n✓ Multiple faces will be detected simultaneously\n✓ Use clear, front-facing photos with good lighting for best results",
                                font=("Arial", 10), fg="gray", justify="left")
         instructions.pack(pady=5)
+        upload_button = tk.Button(button_frame, text="Upload Image",
+                                  command=self.upload_image,
+                                  bg="purple", fg="white", font=("Arial", 12))
+        upload_button.pack(side=tk.LEFT, padx=5)
     
     def update_status(self):
         """Update the status information"""
         self.faces_count_label.config(text=f"Known faces: {len(self.known_encodings)}")
         self.current_faces_label.config(text=f"Current faces detected: {self.current_faces_count}")
         
+        # Update keyboard status
         if self.keyboard_settings['enabled']:
             self.keyboard_status_label.config(text="Keyboard Auto-Input: Enabled", fg="green")
         else:
             self.keyboard_status_label.config(text="Keyboard Auto-Input: Disabled", fg="gray")
-        
-        if self.sharepoint_config['enabled']:
-            self.sharepoint_status_label.config(text="SharePoint: Connected", fg="green")
-        else:
-            self.sharepoint_status_label.config(text="SharePoint: Not configured", fg="gray")
     
     def start_camera(self):
         """Start the webcam"""
@@ -249,59 +262,56 @@ class FaceRecognitionApp:
         return colors[index % len(colors)]
     
     def update_frame(self):
-        """Update the video frame with YuNet and SFace processing"""
+        """Update the video frame with enhanced multi-face processing"""
         if not self.is_camera_running or not self.cap:
             return
         
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.flip(frame, 1)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             if self.frame_count % 3 == 0:
-                height, width = frame.shape[:2]
-                self.face_detector.setInputSize((width, height))
-                _, faces = self.face_detector.detect(frame)
+                small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
                 
-                self.face_locations = []
-                self.face_encodings = []
+                self.face_locations = face_recognition.face_locations(rgb_small_frame, 
+                                                                    model="hog", 
+                                                                    number_of_times_to_upsample=1)
+                self.face_encodings = face_recognition.face_encodings(rgb_small_frame, self.face_locations)
+                
+                self.current_faces_count = len(self.face_locations)
+                
                 self.face_names = []
-                
-                if faces is not None:
-                    self.current_faces_count = len(faces)
-                    for i, face in enumerate(faces):
-                        x, y, w, h = map(int, face[:4])
-                        self.face_locations.append((y, x+w, y+h, x))
-                        face_img = rgb_frame[y:y+h, x:x+w]
-                        try:
-                            face_encoding = self.face_recognizer.feature(face_img)
-                            self.face_encodings.append(face_encoding)
-                            
-                            name = "Unknown"
-                            confidence = 0
-                            if self.known_encodings:
-                                distances = []
-                                for known_encoding in self.known_encodings:
-                                    distance = self.face_recognizer.match(face_encoding, known_encoding, cv2.FaceRecognizerSF_FR_COSINE)
-                                    distances.append(distance)
-                                min_distance = min(distances)
-                                best_match_index = distances.index(min_distance)
-                                if min_distance < 0.3:  # Adjust threshold as needed
-                                    name = self.known_names[best_match_index]
-                                    confidence = 1 - min_distance
-                                    self.log_match_with_cooldown(name)
-                            
-                            self.face_names.append((name, confidence))
-                        except:
-                            self.face_names.append(("Unknown", 0))
-                else:
-                    self.current_faces_count = 0
+                for face_encoding in self.face_encodings:
+                    matches = face_recognition.compare_faces(self.known_encodings, face_encoding, tolerance=0.5)
+                    name = "Unknown"
+                    confidence = 0
+                    
+                    if True in matches:
+                        face_distances = face_recognition.face_distance(self.known_encodings, face_encoding)
+                        best_match_index = np.argmin(face_distances)
+                        
+                        if matches[best_match_index] and face_distances[best_match_index] < 0.6:
+                            name = self.known_names[best_match_index]
+                            confidence = 1 - face_distances[best_match_index]
+                            self.log_match_with_cooldown(name)
+                    
+                    self.face_names.append((name, confidence))
                 
                 self.update_status()
             
+            # Display results
             for i, ((top, right, bottom, left), (name, confidence)) in enumerate(zip(self.face_locations, self.face_names)):
-                is_known = name != "Unknown"
-                color = self.get_face_color(i, is_known)
+                top *= 2
+                right *= 2
+                bottom *= 2
+                left *= 2
+                
+                # Always use red for unknown faces, other colors for known faces
+                if name == "Unknown":
+                    color = (0, 0, 255)  # Red for unknown faces
+                else:
+                    color = self.get_face_color(i, is_known=True)  # Other colors for known faces
                 
                 cv2.rectangle(frame, (left, top), (right, bottom), color, 3)
                 
@@ -352,6 +362,7 @@ class FaceRecognitionApp:
         self.log_match(name)
         self.last_logged[name] = current_time
         
+        # Trigger keyboard auto-input if enabled
         if self.keyboard_settings['enabled']:
             self.auto_type_data(name, current_time)
     
@@ -359,13 +370,16 @@ class FaceRecognitionApp:
         """Automatically type data to keyboard"""
         def type_data():
             try:
+                # Wait for the specified delay
                 time.sleep(self.keyboard_settings['delay_seconds'])
                 
+                # Prepare the data to type
                 now = timestamp
                 date_str = now.strftime('%Y-%m-%d')
                 time_str = now.strftime('%H:%M:%S')
                 timestamp_str = now.strftime('%Y-%m-%d %H:%M:%S')
                 
+                # Format the text according to template
                 text_to_type = self.keyboard_settings['format_template'].format(
                     name=name,
                     timestamp=timestamp_str,
@@ -373,8 +387,10 @@ class FaceRecognitionApp:
                     time=time_str
                 )
                 
+                # Type the text
                 pyautogui.typewrite(text_to_type, interval=0.05)
                 
+                # Add additional keys if configured
                 if self.keyboard_settings['add_tab']:
                     pyautogui.press('tab')
                 
@@ -386,6 +402,7 @@ class FaceRecognitionApp:
             except Exception as e:
                 print(f"Error in auto-typing: {e}")
         
+        # Run in background thread
         thread = threading.Thread(target=type_data)
         thread.daemon = True
         thread.start()
@@ -400,6 +417,7 @@ class FaceRecognitionApp:
         config_window.transient(self.root)
         config_window.grab_set()
         
+        # Center the window
         config_window.update_idletasks()
         x = (config_window.winfo_screenwidth() // 2) - (500 // 2)
         y = (config_window.winfo_screenheight() // 2) - (600 // 2)
@@ -407,16 +425,19 @@ class FaceRecognitionApp:
         
         tk.Label(config_window, text="Keyboard Auto-Input Settings", font=("Arial", 14, "bold")).pack(pady=10)
         
+        # Enable checkbox
         enable_var = tk.BooleanVar(value=self.keyboard_settings.get('enabled', False))
         tk.Checkbutton(config_window, text="Enable Keyboard Auto-Input", 
                       variable=enable_var, font=("Arial", 12)).pack(pady=10)
         
+        # Delay setting
         tk.Label(config_window, text="Delay before typing (seconds):").pack(anchor='w', padx=20)
         delay_var = tk.DoubleVar(value=self.keyboard_settings.get('delay_seconds', 3))
         delay_spinbox = tk.Spinbox(config_window, from_=0.5, to=10.0, increment=0.5, 
                                   textvariable=delay_var, width=10)
         delay_spinbox.pack(pady=5)
         
+        # Format template
         tk.Label(config_window, text="Text Format Template:").pack(anchor='w', padx=20, pady=(20,0))
         tk.Label(config_window, text="Available variables: {name}, {timestamp}, {date}, {time}", 
                 font=("Arial", 9), fg="gray").pack(anchor='w', padx=20)
@@ -425,6 +446,7 @@ class FaceRecognitionApp:
         format_entry = tk.Entry(config_window, textvariable=format_var, width=50)
         format_entry.pack(pady=5, padx=20)
         
+        # Additional options
         options_frame = tk.Frame(config_window)
         options_frame.pack(pady=20)
         
@@ -436,6 +458,7 @@ class FaceRecognitionApp:
         tk.Checkbutton(options_frame, text="Press Tab after typing", 
                       variable=add_tab_var).pack(anchor='w')
         
+        # Preview section
         preview_frame = tk.Frame(config_window)
         preview_frame.pack(pady=20, padx=20, fill='x')
         
@@ -461,6 +484,7 @@ class FaceRecognitionApp:
         format_entry.bind('<KeyRelease>', lambda e: update_preview())
         update_preview()
         
+        # Test button
         def test_typing():
             if messagebox.askyesno("Test Typing", 
                                   "This will type the preview text after the delay. "
@@ -469,6 +493,7 @@ class FaceRecognitionApp:
                 test_name = "Test_User"
                 test_time = datetime.now()
                 
+                # Temporarily update settings for test
                 temp_settings = self.keyboard_settings.copy()
                 temp_settings.update({
                     'enabled': True,
@@ -502,11 +527,13 @@ class FaceRecognitionApp:
         tk.Button(config_window, text="Test Typing", command=test_typing, 
                  bg="orange", fg="white").pack(pady=10)
         
+        # Buttons
         button_frame = tk.Frame(config_window)
         button_frame.pack(pady=20)
         
         def save_keyboard_config():
             try:
+                # Validate format template
                 test_format = format_var.get().format(
                     name="test", timestamp="test", date="test", time="test"
                 )
@@ -530,16 +557,18 @@ class FaceRecognitionApp:
         tk.Button(button_frame, text="Cancel", command=config_window.destroy, 
                  bg="red", fg="white").pack(side=tk.LEFT, padx=5)
         
+        # Instructions
         instructions = tk.Label(config_window, 
                                text="Instructions:\n• Enable auto-input to type data when faces are recognized\n• Set delay to give time to focus on target application\n• Use format template to customize output\n• Test the settings before saving",
                                font=("Arial", 9), fg="gray", justify="left")
         instructions.pack(pady=10, padx=20)
     
     def log_match(self, name):
-        """Log the matched person and timestamp to CSV and SharePoint"""
+        """Log the matched person and timestamp to CSV"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         log_data = [name, timestamp]
         
+        # Log to CSV file
         log_file = 'Attendance_log.csv'
         file_exists = os.path.isfile(log_file)
         
@@ -552,20 +581,11 @@ class FaceRecognitionApp:
                 print(f"Logged to CSV: {name} at {timestamp}")
         except Exception as e:
             print(f"Error logging to CSV: {e}")
-        
-        if self.sharepoint_config['enabled']:
-            self.log_to_sharepoint_async(name, timestamp)
     
     def load_configs(self):
         """Load all configurations"""
-        sharepoint_file = 'sharepoint_config.json'
-        if os.path.exists(sharepoint_file):
-            try:
-                with open(sharepoint_file, 'r') as f:
-                    self.sharepoint_config = json.load(f)
-            except Exception as e:
-                print(f"Error loading SharePoint config: {e}")
-        
+      
+        # Load keyboard config
         keyboard_file = 'keyboard_config.json'
         if os.path.exists(keyboard_file):
             try:
@@ -576,12 +596,8 @@ class FaceRecognitionApp:
     
     def save_configs(self):
         """Save all configurations"""
-        try:
-            with open('sharepoint_config.json', 'w') as f:
-                json.dump(self.sharepoint_config, f, indent=2)
-        except Exception as e:
-            print(f"Error saving SharePoint config: {e}")
-        
+
+        # Save keyboard config
         try:
             with open('keyboard_config.json', 'w') as f:
                 json.dump(self.keyboard_settings, f, indent=2)
@@ -592,14 +608,6 @@ class FaceRecognitionApp:
         """Handle window closing"""
         self.stop_camera()
         self.root.destroy()
-    
-    def open_sharepoint_config(self):
-        """Placeholder for SharePoint config"""
-        messagebox.showinfo("SharePoint", "SharePoint configuration dialog would open here.")
-    
-    def log_to_sharepoint_async(self, name, timestamp):
-        """Placeholder for SharePoint logging"""
-        print(f"Would log to SharePoint: {name} at {timestamp}")
 
 if __name__ == "__main__":
     try:
@@ -610,9 +618,9 @@ if __name__ == "__main__":
         import sys
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyautogui"])
         import pyautogui
-    
-    pyautogui.FAILSAFE = True
-    pyautogui.PAUSE = 0.1
+
+    pyautogui.FAILSAFE = True  
+    pyautogui.PAUSE = 0.1    
     
     root = tk.Tk()
     app = FaceRecognitionApp(root)
