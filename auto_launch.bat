@@ -2,13 +2,13 @@
 timeout /t 10 /nobreak >nul
 
 REM Open first URL in first browser window
-start chrome https://www.example1.com
+start "" https://www.google.com
 
 REM Wait for first browser to fully load
 timeout /t 8 /nobreak >nul
 
 REM Open second URL in NEW browser window
-start chrome --new-window https://www.example2.com
+start "" https://www.github.com
 
 REM Wait for second browser to load
 timeout /t 3 /nobreak >nul
