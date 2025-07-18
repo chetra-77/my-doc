@@ -1,14 +1,14 @@
 @echo off
 timeout /t 10 /nobreak >nul
 
-REM Open first URL and wait for it to fully load
-start https://www.example1.com
+REM Open first URL in first browser window
+start chrome https://www.example1.com
 
-REM Wait longer for first browser to fully load
+REM Wait for first browser to fully load
 timeout /t 8 /nobreak >nul
 
-REM Now open second URL
-start https://www.example2.com
+REM Open second URL in NEW browser window
+start chrome --new-window https://www.example2.com
 
 REM Wait for second browser to load
 timeout /t 3 /nobreak >nul
