@@ -13,3 +13,26 @@ UpdateContext({Show_Content_Step:If(IsBlank(Show_Content_Step),true,Show_Content
 Select(Button3_6);UpdateContext({Edit_Match_:"New",Sel_Match_:Blank()});
 
 If(IsBlank(Start_ID),UpdateContext({Blank_Duration:10,Lesson_Start:true}))```
+
+
+-------------------- New -------------------------------
+@echo off
+timeout /t 10 /nobreak >nul
+
+REM Open first URL
+start "" https://www.example1.com
+
+REM Wait for first browser to fully load
+timeout /t 10 /nobreak >nul
+
+REM Split first window to LEFT side
+powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{LWIN}+{LEFT}'); Start-Sleep -Milliseconds 1000;"
+
+REM Open new window (Ctrl+Shift+N works in Chrome, Edge, Firefox)
+powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^+n'); Start-Sleep -Milliseconds 3000;"
+
+REM Navigate to second URL
+powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^l'); Start-Sleep -Milliseconds 1000; [System.Windows.Forms.SendKeys]::SendWait('https://www.example2.com'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); Start-Sleep -Milliseconds 5000;"
+
+REM Split second window to RIGHT side
+powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{LWIN}+{RIGHT}');"
